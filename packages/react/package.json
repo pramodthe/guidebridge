@@ -14,7 +14,9 @@
       "require": "./dist/index.cjs"
     }
   },
+  "readme": "README.md",
   "files": [
+    "README.md",
     "dist"
   ],
   "scripts": {

@@ -366,6 +366,20 @@ explaining each step.
 - [ ] Vue / Svelte runtimes speaking the same protocol
 - [ ] Voice transports (LiveKit data channels, Vapi client messages)
 
+## 🤖 For AI coding agents
+
+This repo is agent-ready — clone it and your coding agent can integrate GuideBridge for you:
+
+- [`llms.txt`](llms.txt) — LLM-readable index of docs, protocol, and examples
+- [`.claude/skills/guidebridge/SKILL.md`](.claude/skills/guidebridge/SKILL.md) — a
+  step-by-step integration playbook; Claude Code picks it up automatically in this repo,
+  or copy the `guidebridge/` folder into your own project's `.claude/skills/`
+- [`AGENTS.md`](AGENTS.md) — repo map, build/test commands, and contribution rules
+  (Claude, Cursor, Codex, etc. read this when working on the codebase)
+
+Tell your agent: *"Add GuideBridge to my app so an AI guide can control the page"* — the
+skill walks it through provider setup, target naming, bridge mounting, and verification.
+
 ## 🤝 Contributing
 
 Issues and PRs welcome. To develop locally:

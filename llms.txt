@@ -1,0 +1,52 @@
+# GuideBridge
+
+> GuideBridge lets a Python AI agent see and control the page a user is currently viewing
+> in their own browser tab — with a visible animated cursor. It ships as two packages:
+> `@guidebridge/react` (npm, the in-page runtime) and `guidebridge` (PyPI, a FastAPI
+> WebSocket bridge with adapters for LangChain, OpenAI, Anthropic, Google ADK, and MCP).
+> No browser automation, no screenshots: the agent observes a semantic JSON snapshot and
+> acts on named targets. It is NOT for third-party sites — only for apps you own that
+> mount the provider.
+
+Key facts for integration:
+- Frontend: wrap the app in `<AgentProvider url="ws://HOST:PORT/agent/ws">`, render
+  `<AgentCursor />` once, name elements with `{...agentTarget("id")}`, expose app-level
+  actions with `useAgentAction(name, description, handler)`.
+- Backend: `bridge = AgentBridge(); app.include_router(bridge.router)` mounts the
+  WebSocket endpoint; hand tools to your agent via `bridge.as_langchain_tools()`,
+  `bridge.as_openai_tools()` (.specs + await .call(name, args)), or
+  `bridge.as_mcp_server()`.
+- The 11 agent tools: observe_page, point_at, highlight, callout, click, type_text,
+  select_option, scroll_to, scroll_by, drag, app_action.
+- Always call observe_page first to get target ids; act on ids, never coordinates.
+- Security: `autoDiscover={false}` restricts the agent to explicit agentTarget elements;
+  `AgentBridge(authorize=async_fn)` authenticates the WebSocket; destructive flows belong
+  behind useAgentAction handlers where app code can require confirmation.
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/pramodthe/guidebridge/main/README.md): full
+  documentation — quickstart, API reference for both packages, framework integrations,
+  protocol frames, security model, demo instructions
+- [Integration skill](https://raw.githubusercontent.com/pramodthe/guidebridge/main/.claude/skills/guidebridge/SKILL.md):
+  step-by-step playbook for coding agents adding GuideBridge to an app
+- [AGENTS.md](https://raw.githubusercontent.com/pramodthe/guidebridge/main/AGENTS.md):
+  repo layout, build/test commands, and contribution rules for coding agents
+
+## Source (canonical references)
+
+- [TypeScript protocol](https://raw.githubusercontent.com/pramodthe/guidebridge/main/packages/react/src/protocol.ts):
+  wire frames, actions, and snapshot types (v1)
+- [Python protocol mirror](https://raw.githubusercontent.com/pramodthe/guidebridge/main/python/src/guidebridge/protocol.py):
+  Pydantic models and tool argument schemas
+- [Tool definitions](https://raw.githubusercontent.com/pramodthe/guidebridge/main/python/src/guidebridge/tools.py):
+  the 11 tools, descriptions, and dispatch
+- [React public API](https://raw.githubusercontent.com/pramodthe/guidebridge/main/packages/react/src/index.ts):
+  everything the npm package exports
+
+## Examples
+
+- [Demo backend](https://raw.githubusercontent.com/pramodthe/guidebridge/main/examples/demo/backend/main.py):
+  FastAPI app with a scripted tour and an optional LangChain agent endpoint
+- [Demo frontend](https://raw.githubusercontent.com/pramodthe/guidebridge/main/examples/demo/frontend/src/App.tsx):
+  a storefront instrumented with agentTarget, useAgentAction, and AgentCursor

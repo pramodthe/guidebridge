@@ -1,0 +1,41 @@
+{
+  "name": "@guidebridge/react",
+  "version": "0.1.0",
+  "description": "Give any Python agent eyes and hands inside your React app: semantic page observation, cursor-led actions, and guided-tour overlays.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --sourcemap",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "react",
+    "langchain",
+    "guided-tour",
+    "ui-automation"
+  ],
+  "peerDependencies": {
+    "react": ">=17"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "react": "^18.3.1",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  }
+}

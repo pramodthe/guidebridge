@@ -115,6 +115,11 @@ class AgentBridge:
 
         return OpenAIToolset(self, session_id=session_id)
 
+    def as_mcp_server(self, session_id: Optional[str] = None, *, name: str = "guidebridge"):
+        from .adapters.mcp import as_mcp_server
+
+        return as_mcp_server(self, session_id=session_id, name=name)
+
     # ---- FastAPI integration ----
 
     @property

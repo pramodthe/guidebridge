@@ -80,13 +80,15 @@ function showCallout(target: Element, textContent: string, ms: number): void {
   const el = document.createElement("div");
   el.setAttribute("aria-hidden", "true");
   el.textContent = textContent;
+  // Place above the target unless it sits near the viewport top — then below.
+  const above = r.top > 96;
   el.style.cssText = [
     "position:fixed",
     "z-index:2147483645",
     "max-width:280px",
     `left:${Math.min(window.innerWidth - 300, Math.max(12, r.left))}px`,
-    `top:${Math.max(12, r.top - 8)}px`,
-    "transform:translateY(-100%)",
+    `top:${above ? r.top - 8 : Math.max(12, r.top + 24)}px`,
+    above ? "transform:translateY(-100%)" : "transform:none",
     `background:${HIGHLIGHT_COLOR}`,
     "color:#fff",
     "padding:8px 12px",

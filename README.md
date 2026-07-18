@@ -18,6 +18,8 @@ browser tab. No browser automation. No screenshots. No hosted service.
 [React API](#-react-api) · [Python API](#-python-api) · [Frameworks](#-framework-integrations) ·
 [Protocol](#-protocol) · [Security](#-security-model) · [Demo](#-run-the-demo)
 
+![GuideBridge demo: an agent tours a storefront, highlights products, and fills the contact form with a visible cursor](docs/demo.gif)
+
 </div>
 
 ---
@@ -277,6 +279,21 @@ for block in msg.content:
 </details>
 
 <details>
+<summary><b>MCP (Claude Code, Claude Desktop, Cursor, …)</b></summary>
+
+```python
+# pip install "guidebridge[mcp]"
+server = bridge.as_mcp_server()
+server.run()                                  # stdio, for local MCP clients
+
+# or serve over HTTP alongside your FastAPI app:
+app.mount("/mcp", server.streamable_http_app())
+```
+
+Any MCP client connected to this server gets all 11 page-control tools.
+</details>
+
+<details>
 <summary><b>Google ADK / anything else</b></summary>
 
 Any framework that consumes JSON-schema function specs works: feed it
@@ -341,8 +358,8 @@ explaining each step.
 
 ## 🗺 Roadmap
 
-- [ ] **MCP server adapter** — expose the bridge as an MCP server so Claude, Cursor, and
-      any MCP client get page control for free
+- [x] **MCP server adapter** — `bridge.as_mcp_server()` exposes page control to Claude,
+      Cursor, and any MCP client
 - [ ] `spotlight` action (dim everything except the target) + step-sequenced tours
 - [ ] Human-confirmation policy hooks (`confirm: true` per target/action)
 - [ ] Sandboxed-iframe mode for untrusted/generated HTML content

@@ -189,7 +189,7 @@ function Store() {
 
 export default function App() {
   return (
-    <AgentProvider url="ws://localhost:8000/agent/ws">
+    <AgentProvider url={`ws://${location.hostname}:8000/agent/ws`}>
       <AgentCursor label="Guide" color="#16a34a" />
       <DemoControls />
       <Store />

@@ -365,6 +365,12 @@ observes the page and moves the cursor to highlight, click, and fill the form �
 by the model, nothing hardcoded. No API key? Click **▶ run the scripted tour** for the fixed
 cursor demo instead.
 
+The chat **streams** the agent's work live over Server-Sent Events using AG-UI-style event
+names (`RUN_STARTED`, `TOOL_CALL_START`/`END`, `TEXT_MESSAGE_CONTENT` deltas, `RUN_FINISHED`),
+so you see *"🔍 Looking at the page… 👆 Clicking…"* as it happens and the reply types itself
+in — no dead spinner. The current page snapshot is pre-loaded into the prompt so the agent can
+usually skip a round trip.
+
 You can also **talk to it**: tap 🎤 to speak your request and toggle 🔊 to hear the reply
 spoken back. This uses the browser's built-in Web Speech API (Chrome) — no extra keys or
 services; voice is just another way in and out of the *same* agent, which shows GuideBridge

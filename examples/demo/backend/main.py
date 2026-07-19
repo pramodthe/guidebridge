@@ -3,12 +3,18 @@
 Runs the bridge plus two ways to drive the storefront:
 
   POST /demo/chat  — the real thing: a live LLM agent (Claude, via LangChain) that
-                     reads your natural-language request, calls observe_page to see
-                     the store, then points/highlights/clicks/types on its own to
-                     carry it out. Nothing about which elements it touches is
-                     hardcoded. Needs TOKENROUTER_API_KEY (an OpenAI-compatible
+                     reads your natural-language request and points/highlights/clicks/
+                     types on its own to carry it out. Nothing about which elements it
+                     touches is hardcoded. Needs TOKENROUTER_API_KEY (an OpenAI-compatible
                      gateway) or ANTHROPIC_API_KEY, plus:
                        pip install langchain langchain-openai   (or langchain-anthropic)
+
+                     Streams progress as Server-Sent Events using AG-UI-style event
+                     names (RUN_STARTED, TOOL_CALL_START/END, TEXT_MESSAGE_CONTENT
+                     deltas, RUN_FINISHED/RUN_ERROR) so the UI shows the agent working
+                     live instead of a dead spinner. The current page snapshot is
+                     pre-loaded into the prompt so the agent can usually skip the
+                     observe_page round trip.
 
   POST /demo/tour  — a scripted fallback: a fixed sequence of tool calls, no model,
                      no API key. Useful to show the cursor mechanics offline, but it
@@ -22,8 +28,11 @@ import asyncio
 import json
 import os
 
+from typing import Any, AsyncIterator
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from guidebridge import AgentBridge
@@ -83,10 +92,11 @@ class ChatIn(BaseModel):
 SYSTEM = (
     "You are a friendly on-page guide for a plant storefront the user is currently "
     "looking at. You can see and control the real page with your tools. "
-    "ALWAYS call observe_page first to learn the current target ids, values, and what "
-    "is on screen. Then carry out the user's request by calling the page tools yourself "
-    "— point_at / highlight / callout to draw attention, scroll_to to bring things into "
-    "view, click to press buttons, type_text and select_option to fill the contact form. "
+    "A snapshot of the current page (target ids, labels, values) is given below — use it "
+    "directly; only call observe_page again if you changed the page and need fresh state. "
+    "Carry out the user's request by calling the page tools yourself — point_at / highlight "
+    "/ callout to draw attention, scroll_to to bring things into view, click to press "
+    "buttons, type_text and select_option to fill the contact form. "
     "Narrate briefly as you go. When you are done, reply with one or two short sentences "
     "describing what you did. Never claim you did something the tool result didn't confirm."
 )
@@ -105,34 +115,93 @@ def _build_llm():
             api_key=token_router_key,
             base_url=os.environ.get("TOKENROUTER_BASE_URL", "https://api.tokenrouter.com/v1"),
             max_tokens=1200,
+            streaming=True,
         )
     if os.environ.get("ANTHROPIC_API_KEY"):
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(model="claude-sonnet-5", max_tokens=1200)
+        return ChatAnthropic(model="claude-sonnet-5", max_tokens=1200, streaming=True)
     return None
 
 
-@app.post("/demo/chat")
-async def demo_chat(body: ChatIn) -> dict:
+def _sse(event: dict) -> str:
+    """One Server-Sent Event frame."""
+    return f"data: {json.dumps(event)}\n\n"
+
+
+def _chunk_text(chunk: Any) -> str:
+    """Pull streamed text out of a model chunk (string content, or Anthropic-style
+    content blocks). Tool-call chunks have no text and yield ''."""
+    content = getattr(chunk, "content", None)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts)
+    return ""
+
+
+async def _chat_events(message: str) -> AsyncIterator[str]:
+    """Run the agent and stream AG-UI-style events as SSE."""
     if bridge.get_session() is None:
-        return {"error": "no browser session connected — open the storefront first"}
+        yield _sse({"type": "RUN_ERROR", "message": "no browser session connected — open the storefront first"})
+        return
     try:
         from langchain.agents import create_agent
     except ImportError:
-        return {"error": "pip install langchain langchain-openai (or langchain-anthropic)"}
-
+        yield _sse({"type": "RUN_ERROR", "message": "pip install langchain langchain-openai (or langchain-anthropic)"})
+        return
     llm = _build_llm()
     if llm is None:
-        return {"error": "set TOKENROUTER_API_KEY or ANTHROPIC_API_KEY to use the live agent"}
+        yield _sse({"type": "RUN_ERROR", "message": "set TOKENROUTER_API_KEY or ANTHROPIC_API_KEY to use the live agent"})
+        return
 
-    agent = create_agent(
-        llm,
-        tools=bridge.as_langchain_tools(),
-        system_prompt=SYSTEM,
+    # Pre-load the page snapshot: one cheap bridge round trip (no model call) so the
+    # agent can usually skip the observe_page step — cuts one full model hop.
+    system = SYSTEM
+    try:
+        snapshot = await bridge.call_tool("observe_page", {})
+        system = f"{SYSTEM}\n\nCURRENT PAGE SNAPSHOT (JSON):\n{snapshot}"
+    except Exception:
+        pass
+
+    agent = create_agent(llm, tools=bridge.as_langchain_tools(), system_prompt=system)
+
+    yield _sse({"type": "RUN_STARTED"})
+    final_parts: list[str] = []
+    try:
+        async for ev in agent.astream_events(
+            {"messages": [{"role": "user", "content": message}]}, version="v2"
+        ):
+            etype = ev.get("event")
+            if etype == "on_tool_start":
+                yield _sse({
+                    "type": "TOOL_CALL_START",
+                    "toolCallName": ev.get("name"),
+                    "args": ev.get("data", {}).get("input"),
+                })
+            elif etype == "on_tool_end":
+                yield _sse({"type": "TOOL_CALL_END", "toolCallName": ev.get("name")})
+            elif etype == "on_chat_model_stream":
+                text = _chunk_text(ev.get("data", {}).get("chunk"))
+                if text:
+                    final_parts.append(text)
+                    yield _sse({"type": "TEXT_MESSAGE_CONTENT", "delta": text})
+    except Exception as exc:  # surface the failure into the stream, don't hang the UI
+        yield _sse({"type": "RUN_ERROR", "message": str(exc)})
+        return
+    yield _sse({"type": "RUN_FINISHED", "text": "".join(final_parts)})
+
+
+@app.post("/demo/chat")
+async def demo_chat(body: ChatIn) -> StreamingResponse:
+    return StreamingResponse(
+        _chat_events(body.message),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-    result = await agent.ainvoke({"messages": [{"role": "user", "content": body.message}]})
-    reply = result["messages"][-1].content
-    if not isinstance(reply, str):
-        reply = json.dumps(reply)
-    return {"reply": reply}

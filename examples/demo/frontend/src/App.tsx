@@ -76,13 +76,41 @@ function StatusPill() {
   );
 }
 
-type ChatMsg = { role: "user" | "agent" | "error"; text: string };
+type ChatMsg = { role: "user" | "agent" | "error" | "tool"; text: string };
 
 const EXAMPLES = [
   "What's your cheapest plant? Point it out.",
   "Add the Fiddle-Leaf Fig to my cart.",
   "Help me ask about shipping to Nepal.",
 ];
+
+/** Human-readable label for a streamed tool call (AG-UI TOOL_CALL_START). */
+function toolLabel(name?: string, args?: { target_id?: string } | null): string {
+  const id = args && typeof args.target_id === "string" ? ` ${args.target_id}` : "";
+  switch (name) {
+    case "observe_page":
+      return "🔍 Looking at the page…";
+    case "point_at":
+    case "highlight":
+    case "callout":
+      return `👉 Pointing out${id}`;
+    case "click":
+      return `👆 Clicking${id}`;
+    case "type_text":
+      return "⌨️ Typing…";
+    case "select_option":
+      return "🔽 Choosing an option…";
+    case "scroll_to":
+    case "scroll_by":
+      return "📜 Scrolling…";
+    case "drag":
+      return "✋ Dragging…";
+    case "app_action":
+      return "⚙️ Running an action…";
+    default:
+      return `⋯ ${name ?? "working"}…`;
+  }
+}
 
 function AgentChat() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -99,6 +127,18 @@ function AgentChat() {
     });
   }
 
+  function appendAgentDelta(delta: string) {
+    setMessages((m) => {
+      const last = m[m.length - 1];
+      if (last && last.role === "agent") {
+        const copy = m.slice();
+        copy[copy.length - 1] = { role: "agent", text: last.text + delta };
+        return copy;
+      }
+      return [...m, { role: "agent", text: delta }];
+    });
+  }
+
   async function send(text: string, speakReply = voiceReplies) {
     const message = text.trim();
     if (!message || busy) return;
@@ -107,25 +147,53 @@ function AgentChat() {
     setMessages((m) => [...m, { role: "user", text: message }]);
     scrollLog();
     setBusy(true);
+    let finalText = "";
     try {
       const res = await fetch(`${API}/demo/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
       });
-      const data = await res.json();
-      if (data.error) {
-        setMessages((m) => [...m, { role: "error", text: data.error }]);
-      } else {
-        const reply = data.reply || "(no reply)";
-        setMessages((m) => [...m, { role: "agent", text: reply }]);
-        if (speakReply) speak(reply);
+      if (!res.body) throw new Error("no stream");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let sep: number;
+        while ((sep = buffer.indexOf("\n\n")) >= 0) {
+          const frame = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
+          if (!dataLine) continue;
+          let ev: { type?: string; delta?: string; text?: string; toolCallName?: string; args?: { target_id?: string }; message?: string };
+          try {
+            ev = JSON.parse(dataLine.slice(5).trim());
+          } catch {
+            continue;
+          }
+          if (ev.type === "TOOL_CALL_START") {
+            setMessages((m) => [...m, { role: "tool", text: toolLabel(ev.toolCallName, ev.args) }]);
+          } else if (ev.type === "TEXT_MESSAGE_CONTENT") {
+            const d = ev.delta ?? "";
+            finalText += d;
+            appendAgentDelta(d);
+          } else if (ev.type === "RUN_FINISHED") {
+            if (ev.text) finalText = ev.text;
+          } else if (ev.type === "RUN_ERROR") {
+            setMessages((m) => [...m, { role: "error", text: ev.message ?? "Agent error" }]);
+          }
+          scrollLog();
+        }
       }
     } catch {
       setMessages((m) => [...m, { role: "error", text: "Could not reach the backend." }]);
     } finally {
       setBusy(false);
       scrollLog();
+      if (speakReply && finalText.trim()) speak(finalText);
     }
   }
 
@@ -271,27 +339,41 @@ function AgentChat() {
             </div>
           </div>
         )}
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            style={{
-              alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-              maxWidth: "85%",
-              padding: "7px 11px",
-              borderRadius: 12,
-              font: "400 13px/1.4 system-ui",
-              background:
-                m.role === "user" ? "#16a34a" : m.role === "error" ? "#fef2f2" : "#eef4ee",
-              color: m.role === "user" ? "#fff" : m.role === "error" ? "#b91c1c" : "#1e2a23",
-              border: m.role === "error" ? "1px solid #fca5a5" : "none",
-            }}
-          >
-            {m.text}
-          </div>
-        ))}
+        {messages.map((m, i) =>
+          m.role === "tool" ? (
+            <div
+              key={i}
+              style={{
+                alignSelf: "flex-start",
+                font: "500 11.5px system-ui",
+                color: "#6b7c6f",
+                padding: "0 2px",
+              }}
+            >
+              {m.text}
+            </div>
+          ) : (
+            <div
+              key={i}
+              style={{
+                alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+                maxWidth: "85%",
+                padding: "7px 11px",
+                borderRadius: 12,
+                font: "400 13px/1.4 system-ui",
+                background:
+                  m.role === "user" ? "#16a34a" : m.role === "error" ? "#fef2f2" : "#eef4ee",
+                color: m.role === "user" ? "#fff" : m.role === "error" ? "#b91c1c" : "#1e2a23",
+                border: m.role === "error" ? "1px solid #fca5a5" : "none",
+              }}
+            >
+              {m.text}
+            </div>
+          )
+        )}
         {busy && (
           <div style={{ alignSelf: "flex-start", font: "italic 12px system-ui", color: "#6b7c6f" }}>
-            Agent is working… (a real model call can take 10–30s)
+            Agent is working…
           </div>
         )}
       </div>

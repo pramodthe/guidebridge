@@ -27,6 +27,29 @@ cd ../examples/tictactoe/frontend && npm install && npm run dev
 Open <http://localhost:5183>. You're X and move first; the agent (O) responds
 automatically. It never loses — expect a draw if you play well, or a loss if you don't.
 
+## A real LLM opponent, not just minimax
+
+Toggle **Claude (real LLM)** in the UI to switch the O player from minimax to an actual
+Claude agent that decides its own moves — it calls `get_game_state` (an `app_action`)
+to see the board and reasons about it, then calls `click` itself. No move logic is
+hardcoded anywhere in this path; the backend only explains the rules. Expect 10–30s per
+move (a few real model round trips), and occasionally a turn where the model doesn't
+commit to a move in time — the frontend hands control back to you cleanly rather than
+soft-locking.
+
+Needs one of:
+```bash
+# Anthropic directly
+export ANTHROPIC_API_KEY=sk-...
+
+# or an OpenAI-compatible gateway (e.g. TokenRouter) — set the model string if your
+# gateway names it differently than "anthropic/claude-sonnet-5"
+export TOKENROUTER_API_KEY=sk-...
+export TOKENROUTER_MODEL=anthropic/claude-sonnet-5   # optional, this is the default
+
+pip install langchain langchain-openai   # or langchain-anthropic for the direct path
+```
+
 ## Why this caught a real bug
 
 The first version of this demo hung forever: the agent's `get_game_state` action kept

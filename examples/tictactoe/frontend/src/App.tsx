@@ -105,6 +105,8 @@ function Board() {
   const [llmNote, setLlmNote] = useState<string | null>(null);
   const [llmError, setLlmError] = useState<string | null>(null);
   const movingRef = useRef(false);
+  const turnXRef = useRef(turnX);
+  turnXRef.current = turnX;
 
   const winner = calculateWinner(board);
   const full = board.every((c) => c !== null);
@@ -140,8 +142,20 @@ function Board() {
             // to the human instead of soft-locking on "Agent is thinking".
             setLlmError(data.error);
             setTurnX(true);
-          } else if (data.reply) {
-            setLlmNote(data.reply);
+          } else {
+            if (data.reply) setLlmNote(data.reply);
+            // A 200 with no error doesn't guarantee the model actually called
+            // click — it may have only talked. If the click had landed, this
+            // tab's own React state would already show it's X's turn again
+            // (the click resolves, in this same tab, before the backend's
+            // HTTP response returns). If it's still O's turn, hand back
+            // control instead of soft-locking on "Agent is thinking".
+            setTimeout(() => {
+              if (!turnXRef.current) {
+                setLlmError((prev) => prev ?? "The agent didn't play a move that turn — your turn again.");
+                setTurnX(true);
+              }
+            }, 50);
           }
         }
       })
@@ -182,7 +196,10 @@ function Board() {
   if (winner) status = winner === "X" ? "You win! 🎉" : "Agent wins — try again!";
   else if (full) status = "Draw.";
   else if (turnX) status = "Your turn (X)";
-  else status = "Agent is thinking (O)…";
+  else status =
+    opponent === "llm"
+      ? "Agent is thinking (O)… real model calls can take 10–30s"
+      : "Agent is thinking (O)…";
 
   return (
     <div style={styles.card}>

@@ -129,20 +129,42 @@ again after clicking, and do not click more than one cell.
 Reply with one short sentence naming the cell you chose and why."""
 
 
+def _build_llm():
+    """Prefer a TokenRouter-proxied Claude Sonnet (OpenAI-compatible gateway, no
+    provider SDK needed); fall back to calling Anthropic directly if that's what's
+    configured instead. Neither is required by the SDK itself — just this demo."""
+    token_router_key = os.environ.get("TOKENROUTER_API_KEY")
+    if token_router_key:
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(
+            model=os.environ.get("TOKENROUTER_MODEL", "anthropic/claude-sonnet-5"),
+            api_key=token_router_key,
+            base_url="https://api.tokenrouter.com/v1",
+            max_tokens=500,
+        )
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        from langchain_anthropic import ChatAnthropic
+
+        return ChatAnthropic(model="claude-sonnet-5", max_tokens=500)
+    return None
+
+
 @app.post("/agent/move-llm")
 async def agent_move_llm() -> dict:
     if bridge.get_session() is None:
         return {"error": "no browser session connected"}
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return {"error": "set ANTHROPIC_API_KEY and install langchain langchain-anthropic to use this mode"}
     try:
         from langchain.agents import create_agent
-        from langchain_anthropic import ChatAnthropic
     except ImportError:
-        return {"error": "pip install langchain langchain-anthropic"}
+        return {"error": "pip install langchain langchain-openai (or langchain-anthropic)"}
+
+    llm = _build_llm()
+    if llm is None:
+        return {"error": "set TOKENROUTER_API_KEY or ANTHROPIC_API_KEY to use this mode"}
 
     agent = create_agent(
-        ChatAnthropic(model="claude-sonnet-5", max_tokens=500),
+        llm,
         tools=bridge.as_langchain_tools(),
         system_prompt=LLM_SYSTEM_PROMPT,
     )

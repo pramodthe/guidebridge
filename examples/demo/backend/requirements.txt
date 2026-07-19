@@ -4,4 +4,5 @@ fastapi>=0.110
 uvicorn>=0.29
 # Optional, for POST /demo/chat (real LLM agent):
 # langchain>=1.0
-# langchain-anthropic>=0.3
+# langchain-openai>=0.2       # for TOKENROUTER_API_KEY (OpenAI-compatible gateway)
+# langchain-anthropic>=0.3    # for ANTHROPIC_API_KEY (direct)

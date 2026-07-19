@@ -1,9 +1,18 @@
 """GuideBridge demo backend.
 
-Runs the bridge plus two demo drivers:
-  POST /demo/tour  — scripted guided tour of the storefront (no LLM key needed)
-  POST /demo/chat  — real LLM agent with guidebridge tools (needs ANTHROPIC_API_KEY
-                     and `pip install langchain-anthropic langchain`)
+Runs the bridge plus two ways to drive the storefront:
+
+  POST /demo/chat  — the real thing: a live LLM agent (Claude, via LangChain) that
+                     reads your natural-language request, calls observe_page to see
+                     the store, then points/highlights/clicks/types on its own to
+                     carry it out. Nothing about which elements it touches is
+                     hardcoded. Needs TOKENROUTER_API_KEY (an OpenAI-compatible
+                     gateway) or ANTHROPIC_API_KEY, plus:
+                       pip install langchain langchain-openai   (or langchain-anthropic)
+
+  POST /demo/tour  — a scripted fallback: a fixed sequence of tool calls, no model,
+                     no API key. Useful to show the cursor mechanics offline, but it
+                     is NOT an agent — it does the same 13 steps every time.
 
 Run:  uvicorn main:app --reload --port 8000
 """
@@ -72,25 +81,53 @@ class ChatIn(BaseModel):
 
 
 SYSTEM = (
-    "You are a friendly on-page guide for a plant storefront the user is currently looking at. "
-    "You can see and control the page with your tools. Always call observe_page first, then use "
-    "point_at/highlight/callout/click/type_text/select_option/scroll while you explain what you "
-    "are doing. Keep spoken replies to one or two sentences."
+    "You are a friendly on-page guide for a plant storefront the user is currently "
+    "looking at. You can see and control the real page with your tools. "
+    "ALWAYS call observe_page first to learn the current target ids, values, and what "
+    "is on screen. Then carry out the user's request by calling the page tools yourself "
+    "— point_at / highlight / callout to draw attention, scroll_to to bring things into "
+    "view, click to press buttons, type_text and select_option to fill the contact form. "
+    "Narrate briefly as you go. When you are done, reply with one or two short sentences "
+    "describing what you did. Never claim you did something the tool result didn't confirm."
 )
+
+
+def _build_llm():
+    """Prefer a TokenRouter-proxied model (an OpenAI-compatible gateway, so no vendor
+    SDK needed); fall back to calling Anthropic directly. Neither is required by the
+    GuideBridge SDK itself — only by this demo's live agent."""
+    token_router_key = os.environ.get("TOKENROUTER_API_KEY")
+    if token_router_key:
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(
+            model=os.environ.get("TOKENROUTER_MODEL", "anthropic/claude-sonnet-5"),
+            api_key=token_router_key,
+            base_url=os.environ.get("TOKENROUTER_BASE_URL", "https://api.tokenrouter.com/v1"),
+            max_tokens=1200,
+        )
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        from langchain_anthropic import ChatAnthropic
+
+        return ChatAnthropic(model="claude-sonnet-5", max_tokens=1200)
+    return None
 
 
 @app.post("/demo/chat")
 async def demo_chat(body: ChatIn) -> dict:
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return {"error": "set ANTHROPIC_API_KEY and install langchain-anthropic to use chat"}
+    if bridge.get_session() is None:
+        return {"error": "no browser session connected — open the storefront first"}
     try:
         from langchain.agents import create_agent
-        from langchain_anthropic import ChatAnthropic
     except ImportError:
-        return {"error": "pip install langchain langchain-anthropic"}
+        return {"error": "pip install langchain langchain-openai (or langchain-anthropic)"}
+
+    llm = _build_llm()
+    if llm is None:
+        return {"error": "set TOKENROUTER_API_KEY or ANTHROPIC_API_KEY to use the live agent"}
 
     agent = create_agent(
-        ChatAnthropic(model="claude-sonnet-5", max_tokens=1200),
+        llm,
         tools=bridge.as_langchain_tools(),
         system_prompt=SYSTEM,
     )

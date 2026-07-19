@@ -339,12 +339,19 @@ GuideBridge is **cooperative by design** — there is nothing to inject and no e
 
 ## 🌱 Run the demo
 
-A plant storefront driven by a scripted guided tour (no API key) or a real LangChain
-agent (`ANTHROPIC_API_KEY`):
+A plant storefront with a **live AI agent** in the corner — a real Claude agent that reads
+your natural-language request, calls `observe_page` to see the store, and drives the cursor
+to carry it out. (There's also a scripted, no-API-key tour to show the mechanics offline.)
 
 ```bash
 # terminal 1 — backend
 cd python && pip install -e ".[dev]"
+pip install langchain langchain-openai            # for the live agent
+
+# point at any Claude endpoint — an OpenAI-compatible gateway…
+export TOKENROUTER_API_KEY=sk-...                 # model: anthropic/claude-sonnet-5
+# …or Anthropic directly:  export ANTHROPIC_API_KEY=sk-...
+
 cd ../examples/demo/backend && uvicorn main:app --port 8000
 
 # terminal 2 — frontend
@@ -352,9 +359,11 @@ cd packages/react && npm install && npm run build
 cd ../../examples/demo/frontend && npm install && npm run dev
 ```
 
-Open <http://localhost:5173> and press **▶ Run agent tour**: the cursor tours the store,
-highlights the best seller, adds it to the cart, and fills the contact form while
-explaining each step.
+Open <http://localhost:5173> and talk to the guide: *"What's your cheapest plant? Point it
+out."*, *"Add the Monstera to my cart."*, *"Help me ask about shipping to Nepal."* The agent
+observes the page and moves the cursor to highlight, click, and fill the form — all decided
+by the model, nothing hardcoded. No API key? Click **▶ run the scripted tour** for the fixed
+cursor demo instead.
 
 ## 🗺 Roadmap
 

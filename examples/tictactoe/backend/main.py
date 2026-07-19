@@ -1,16 +1,29 @@
-"""GuideBridge demo #2: tic-tac-toe against an unbeatable minimax agent.
+"""GuideBridge demo #2: tic-tac-toe, with two interchangeable opponents.
 
-Deliberately uses no LLM — this exercises the raw SDK mechanics end to end:
-a Python "agent" reads the board through a custom app_action, decides a move
-with plain minimax, and plays it with the `click` tool. Same round trip a
-real LLM agent would use, minus the model call, so the package works out of
-the box with zero API keys.
+  POST /agent/move      — a plain Python minimax function decides the move.
+                           No model call, no API key. This exercises the raw
+                           SDK mechanics (observe/act/click) with a decision
+                           layer that is deliberately NOT an agent, so the
+                           package is testable out of the box.
+
+  POST /agent/move-llm  — a real LLM (Claude, via LangChain) decides the move
+                           by calling GuideBridge's tools itself: it invokes
+                           the get_game_state app_action to see the board,
+                           reasons about it, and calls the click tool on the
+                           cell it chooses. Nothing here tells it what move to
+                           make — that's the actual point of this endpoint.
+                           Requires ANTHROPIC_API_KEY and
+                           `pip install langchain langchain-anthropic`.
+
+Both endpoints drive the exact same AgentBridge/click/cursor path; only the
+"what move should I make" decision differs.
 
 Run:  uvicorn main:app --reload --port 8010
 """
 from __future__ import annotations
 
 import json
+import os
 from typing import List, Optional
 
 from fastapi import FastAPI
@@ -96,6 +109,50 @@ async def agent_move() -> dict:
 
     result = await bridge.call_tool("click", {"target_id": f"cell-{move}"})
     return {"move": move, "result": json.loads(result)}
+
+
+LLM_SYSTEM_PROMPT = """You are playing tic-tac-toe. You are "O"; the human is "X".
+
+Call the get_game_state app_action first to see the current board, whose turn
+it is, and the winner (if any). The board is a length-9 array indexed left to
+right, top to bottom (0,1,2 / 3,4,5 / 6,7,8); empty cells are null.
+
+If it is not O's turn, or the game is already over, do not call any other
+tool — just say so.
+
+Otherwise, think about which empty cell is the strongest move for O (block an
+immediate loss, take an immediate win, otherwise play well), then call the
+click tool with target_id "cell-<index>" for that cell — e.g. "cell-4" for
+the center. Make exactly ONE move, then stop. Do not call get_game_state
+again after clicking, and do not click more than one cell.
+
+Reply with one short sentence naming the cell you chose and why."""
+
+
+@app.post("/agent/move-llm")
+async def agent_move_llm() -> dict:
+    if bridge.get_session() is None:
+        return {"error": "no browser session connected"}
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return {"error": "set ANTHROPIC_API_KEY and install langchain langchain-anthropic to use this mode"}
+    try:
+        from langchain.agents import create_agent
+        from langchain_anthropic import ChatAnthropic
+    except ImportError:
+        return {"error": "pip install langchain langchain-anthropic"}
+
+    agent = create_agent(
+        ChatAnthropic(model="claude-sonnet-5", max_tokens=500),
+        tools=bridge.as_langchain_tools(),
+        system_prompt=LLM_SYSTEM_PROMPT,
+    )
+    result = await agent.ainvoke(
+        {"messages": [{"role": "user", "content": "It's your turn. Make your move."}]}
+    )
+    reply = result["messages"][-1].content
+    if not isinstance(reply, str):
+        reply = json.dumps(reply)
+    return {"reply": reply}
 
 
 @app.post("/agent/reset")

@@ -70,7 +70,22 @@ const styles: Record<string, React.CSSProperties> = {
     font: "600 14px system-ui",
     cursor: "pointer",
   },
+  modeButton: {
+    border: "1.5px solid #7c3aed",
+    borderRadius: 999,
+    padding: "6px 14px",
+    font: "600 13px system-ui",
+    cursor: "pointer",
+    background: "#fff",
+    color: "#7c3aed",
+  },
+  modeButtonActive: {
+    background: "#7c3aed",
+    color: "#fff",
+  },
 };
+
+type Opponent = "minimax" | "llm";
 
 function StatusPill() {
   const { status } = useAgentBridge();
@@ -86,6 +101,9 @@ function cellLabel(mark: Mark, index: number): string {
 function Board() {
   const [board, setBoard] = useState<Mark[]>(Array(9).fill(null));
   const [turnX, setTurnX] = useState(true); // human is always X and moves first
+  const [opponent, setOpponent] = useState<Opponent>("minimax");
+  const [llmNote, setLlmNote] = useState<string | null>(null);
+  const [llmError, setLlmError] = useState<string | null>(null);
   const movingRef = useRef(false);
 
   const winner = calculateWinner(board);
@@ -106,16 +124,37 @@ function Board() {
     return { reset: true };
   });
 
-  // Whenever it becomes the agent's (O) turn, ask the backend to play.
+  // Whenever it becomes the agent's (O) turn, ask the backend to play —
+  // either the minimax function or a real LLM reasoning over the tools itself.
   useEffect(() => {
     if (turnX || gameOver || movingRef.current) return;
     movingRef.current = true;
-    fetch(`${API}/agent/move`, { method: "POST" })
-      .catch(() => null)
+    setLlmError(null);
+    const endpoint = opponent === "llm" ? "/agent/move-llm" : "/agent/move";
+    fetch(`${API}${endpoint}`, { method: "POST" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (opponent === "llm") {
+          if (data.error) {
+            // The agent couldn't move (no API key, etc.) — hand the turn back
+            // to the human instead of soft-locking on "Agent is thinking".
+            setLlmError(data.error);
+            setTurnX(true);
+          } else if (data.reply) {
+            setLlmNote(data.reply);
+          }
+        }
+      })
+      .catch(() => {
+        if (opponent === "llm") {
+          setLlmError("Could not reach the backend.");
+          setTurnX(true);
+        }
+      })
       .finally(() => {
         movingRef.current = false;
       });
-  }, [turnX, gameOver]);
+  }, [turnX, gameOver, opponent]);
 
   function playCell(i: number) {
     if (gameOver || board[i]) return;
@@ -129,6 +168,14 @@ function Board() {
     setBoard(Array(9).fill(null));
     setTurnX(true);
     movingRef.current = false;
+    setLlmNote(null);
+    setLlmError(null);
+  }
+
+  function switchOpponent(next: Opponent) {
+    if (next === opponent) return;
+    setOpponent(next);
+    newGame();
   }
 
   let status: string;
@@ -141,11 +188,35 @@ function Board() {
     <div style={styles.card}>
       <h1 style={{ font: "800 28px system-ui", margin: "0 0 4px" }}>Tic-Tac-Toe</h1>
       <p style={{ font: "400 14px system-ui", color: "#6b21a8", margin: "0 0 8px" }}>
-        You are X. The <b>O</b> player is a Python agent playing perfect minimax through
-        GuideBridge's <code>click</code> tool — watch the cursor.
+        You are X. The <b>O</b> player moves through GuideBridge's <code>click</code>{" "}
+        tool — watch the cursor. Choose what decides its moves:
       </p>
+      <div style={{ display: "flex", gap: 8, justifyContent: "center", margin: "0 0 10px" }}>
+        <button
+          style={{ ...styles.modeButton, ...(opponent === "minimax" ? styles.modeButtonActive : {}) }}
+          onClick={() => switchOpponent("minimax")}
+        >
+          Minimax (no API key)
+        </button>
+        <button
+          style={{ ...styles.modeButton, ...(opponent === "llm" ? styles.modeButtonActive : {}) }}
+          onClick={() => switchOpponent("llm")}
+        >
+          Claude (real LLM)
+        </button>
+      </div>
       <StatusPill />
       <p style={{ font: "700 16px system-ui", margin: "12px 0" }}>{status}</p>
+      {opponent === "llm" && llmNote && !gameOver && (
+        <p style={{ font: "italic 13px system-ui", color: "#6b21a8", margin: "-6px 0 10px" }}>
+          “{llmNote}”
+        </p>
+      )}
+      {opponent === "llm" && llmError && (
+        <p style={{ font: "500 12px system-ui", color: "#b91c1c", margin: "-6px 0 10px", maxWidth: 340 }}>
+          {llmError}
+        </p>
+      )}
       <div
         {...agentTarget("board", { label: "Tic-tac-toe board" })}
         style={{ ...styles.grid, pointerEvents: turnX && !gameOver ? "auto" : "none" }}

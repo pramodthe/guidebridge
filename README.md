@@ -337,10 +337,10 @@ GuideBridge is **cooperative by design** — there is nothing to inject and no e
   actually happens and can require user confirmation before doing it.
 - The cursor overlay makes every agent action visible; nothing happens silently.
 
-## 🌱 Run the demos
+## 🌱 Run the demo
 
-**Plant storefront** — a scripted guided tour (no API key) or a real LangChain agent
-(`ANTHROPIC_API_KEY`):
+A plant storefront driven by a scripted guided tour (no API key) or a real LangChain
+agent (`ANTHROPIC_API_KEY`):
 
 ```bash
 # terminal 1 — backend
@@ -355,17 +355,6 @@ cd ../../examples/demo/frontend && npm install && npm run dev
 Open <http://localhost:5173> and press **▶ Run agent tour**: the cursor tours the store,
 highlights the best seller, adds it to the cart, and fills the contact form while
 explaining each step.
-
-**[Tic-tac-toe](examples/tictactoe/)** — play against a Python minimax agent, no API key
-needed. Exercises `app_action` reading *live* component state plus the `click` tool, end
-to end in a real browser — a good smoke test after changing the SDK:
-
-```bash
-cd examples/tictactoe/backend  && uvicorn main:app --port 8010
-cd examples/tictactoe/frontend && npm install && npm run dev
-```
-
-Open <http://localhost:5183> — you're X, the cursor plays O and never loses.
 
 ## 🗺 Roadmap
 

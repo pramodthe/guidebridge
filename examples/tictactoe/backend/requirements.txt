@@ -1,0 +1,4 @@
+# Uses the local guidebridge checkout:
+#   pip install -e ../../../python[fastapi] -r requirements.txt
+fastapi>=0.110
+uvicorn>=0.29

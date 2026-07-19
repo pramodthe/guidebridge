@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAgentBridge } from "./AgentProvider";
 import { CustomActionHandler } from "./registry";
 import { TARGET_ATTR } from "./registry";
@@ -8,6 +8,11 @@ import { TARGET_ATTR } from "./registry";
  * or anything a raw DOM event can't express:
  *
  *   useAgentAction("go_to_checkout", "Navigate to the checkout page", () => navigate("/checkout"));
+ *
+ * `handler` is typically an inline closure over component state/props, so it's a new
+ * function every render. Only `name`/`description` changing re-registers the action;
+ * the latest `handler` is always called via a ref, so callers don't need to memoize it
+ * and the invoked closure never goes stale.
  */
 export function useAgentAction(
   name: string,
@@ -15,7 +20,13 @@ export function useAgentAction(
   handler: CustomActionHandler
 ): void {
   const { registerAction } = useAgentBridge();
-  useEffect(() => registerAction(name, description, handler), [name, description]);
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+
+  useEffect(
+    () => registerAction(name, description, (args) => handlerRef.current(args)),
+    [name, description, registerAction]
+  );
 }
 
 /**

@@ -6,6 +6,14 @@ import {
   useAgentAction,
   useAgentBridge,
 } from "@guidebridge/react";
+import {
+  cancelSpeech,
+  createRecognition,
+  Recognition,
+  speak,
+  sttSupported,
+  ttsSupported,
+} from "./speech";
 
 const API = `http://${location.hostname}:8000`;
 
@@ -80,7 +88,10 @@ function AgentChat() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [voiceReplies, setVoiceReplies] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<Recognition | null>(null);
 
   function scrollLog() {
     requestAnimationFrame(() => {
@@ -88,9 +99,10 @@ function AgentChat() {
     });
   }
 
-  async function send(text: string) {
+  async function send(text: string, speakReply = voiceReplies) {
     const message = text.trim();
     if (!message || busy) return;
+    cancelSpeech();
     setInput("");
     setMessages((m) => [...m, { role: "user", text: message }]);
     scrollLog();
@@ -102,18 +114,57 @@ function AgentChat() {
         body: JSON.stringify({ message }),
       });
       const data = await res.json();
-      setMessages((m) => [
-        ...m,
-        data.error
-          ? { role: "error", text: data.error }
-          : { role: "agent", text: data.reply || "(no reply)" },
-      ]);
+      if (data.error) {
+        setMessages((m) => [...m, { role: "error", text: data.error }]);
+      } else {
+        const reply = data.reply || "(no reply)";
+        setMessages((m) => [...m, { role: "agent", text: reply }]);
+        if (speakReply) speak(reply);
+      }
     } catch {
       setMessages((m) => [...m, { role: "error", text: "Could not reach the backend." }]);
     } finally {
       setBusy(false);
       scrollLog();
     }
+  }
+
+  function startListening() {
+    if (busy || listening) return;
+    const rec = createRecognition();
+    if (!rec) return;
+    cancelSpeech();
+    recognitionRef.current = rec;
+    setListening(true);
+    rec.onresult = (e) => {
+      const transcript = e.results[0]?.[0]?.transcript ?? "";
+      if (transcript.trim()) {
+        setVoiceReplies(true); // a spoken question gets a spoken answer
+        void send(transcript, true);
+      }
+    };
+    rec.onerror = () => setListening(false);
+    rec.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+    try {
+      rec.start();
+    } catch {
+      setListening(false);
+    }
+  }
+
+  function stopListening() {
+    recognitionRef.current?.stop();
+    setListening(false);
+  }
+
+  function toggleVoiceReplies() {
+    setVoiceReplies((v) => {
+      if (v) cancelSpeech();
+      return !v;
+    });
   }
 
   async function runScriptedTour() {
@@ -159,7 +210,25 @@ function AgentChat() {
         }}
       >
         <span style={{ font: "700 14px system-ui" }}>🌿 Store guide</span>
-        <StatusPill />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {ttsSupported && (
+            <button
+              onClick={toggleVoiceReplies}
+              title={voiceReplies ? "Spoken replies on" : "Spoken replies off"}
+              style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                fontSize: 15,
+                lineHeight: 1,
+                opacity: voiceReplies ? 1 : 0.45,
+              }}
+            >
+              {voiceReplies ? "🔊" : "🔇"}
+            </button>
+          )}
+          <StatusPill />
+        </div>
       </div>
 
       <div
@@ -177,8 +246,8 @@ function AgentChat() {
       >
         {messages.length === 0 && (
           <div style={{ font: "400 13px system-ui", color: "#6b7c6f" }}>
-            Ask the AI agent to do something on this page — it can see the store and will
-            move the cursor to carry it out. Try:
+            Ask the AI agent to do something on this page{sttSupported ? " — type or tap 🎤 to speak" : ""}.
+            It can see the store and will move the cursor to carry it out. Try:
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
               {EXAMPLES.map((ex) => (
                 <button
@@ -228,13 +297,32 @@ function AgentChat() {
       </div>
 
       <div style={{ padding: 10, borderTop: "1px solid #eef2ee", display: "flex", gap: 8 }}>
+        {sttSupported && (
+          <button
+            onClick={() => (listening ? stopListening() : startListening())}
+            disabled={busy}
+            title={listening ? "Listening — tap to stop" : "Speak to the agent"}
+            style={{
+              border: listening ? "1px solid #dc2626" : "1px solid #d7e3d7",
+              background: listening ? "#fef2f2" : "#fff",
+              borderRadius: 9,
+              padding: "8px 11px",
+              font: "500 14px system-ui",
+              cursor: busy ? "default" : "pointer",
+              opacity: busy ? 0.6 : 1,
+              animation: listening ? "gb-pulse 1.1s ease-in-out infinite" : undefined,
+            }}
+          >
+            {listening ? "●" : "🎤"}
+          </button>
+        )}
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") send(input);
           }}
-          placeholder="Tell the agent what to do…"
+          placeholder={listening ? "Listening…" : sttSupported ? "Type or 🎤 speak…" : "Tell the agent what to do…"}
           disabled={busy}
           style={{
             flex: 1,
@@ -253,6 +341,7 @@ function AgentChat() {
           Send
         </button>
       </div>
+      <style>{"@keyframes gb-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,.5) } 50% { box-shadow: 0 0 0 5px rgba(220,38,38,0) } }"}</style>
 
       <button
         onClick={runScriptedTour}

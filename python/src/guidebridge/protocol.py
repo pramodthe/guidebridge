@@ -16,6 +16,23 @@ class TargetInfo(BaseModel):
     value: Optional[str] = None
     disabled: Optional[bool] = None
     visible: bool
+    slug: Optional[str] = None
+
+
+class SectionInfo(BaseModel):
+    """A content section of the page (data-agent-section / data-lesson-section)."""
+
+    id: str
+    slug: Optional[str] = None
+    title: str = ""
+    summary: str = ""
+    visible: bool = False
+
+
+class HeadingInfo(BaseModel):
+    id: str
+    level: int
+    text: str
 
 
 class UserEvent(BaseModel):
@@ -40,6 +57,10 @@ class PageSnapshot(BaseModel):
     targets: List[TargetInfo]
     customActions: List[CustomActionInfo] = Field(default_factory=list)
     recentEvents: List[UserEvent] = Field(default_factory=list)
+    # Optional structure emitted by content-page runtimes (e.g. iframe mode):
+    sections: Optional[List[SectionInfo]] = None
+    headings: Optional[List[HeadingInfo]] = None
+    visibleSectionId: Optional[str] = None
 
 
 class ActionResult(BaseModel):

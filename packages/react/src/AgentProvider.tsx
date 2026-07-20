@@ -9,6 +9,7 @@ import React, {
 import { PROTOCOL_VERSION, ServerFrame } from "./protocol";
 import { BridgeRegistry, CustomActionHandler } from "./registry";
 import { executeAction } from "./executor";
+import { FrameRelay } from "./frame";
 import { BridgeStatus, BridgeTransport } from "./transport";
 
 export interface AgentBridgeContextValue {
@@ -19,6 +20,12 @@ export interface AgentBridgeContextValue {
     description: string,
     handler: CustomActionHandler
   ) => () => void;
+  /**
+   * Register a sandboxed-iframe relay (see useAgentFrame). While a frame is
+   * registered, ALL observe/action requests route to it instead of the
+   * same-DOM registry/executor (exclusive, frame-wins). Returns unregister.
+   */
+  registerFrame: (relay: FrameRelay) => () => void;
 }
 
 const AgentBridgeContext = createContext<AgentBridgeContextValue | null>(null);
@@ -46,6 +53,7 @@ export function AgentProvider({
   children,
 }: AgentProviderProps): React.ReactElement {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<FrameRelay | null>(null);
   const [status, setStatus] = useState<BridgeStatus>("connecting");
 
   const registry = useMemo(
@@ -63,14 +71,33 @@ export function AgentProvider({
       }),
       onStatus: setStatus,
       onFrame: (frame: ServerFrame) => {
+        const relay = frameRef.current; // frame-wins routing (read per request)
         if (frame.type === "observe.request") {
-          transport.send({
-            type: "observe.result",
-            requestId: frame.requestId,
-            payload: registry.snapshot(),
-          });
+          if (relay) {
+            void relay
+              .snapshot()
+              .then((payload) =>
+                transport.send({ type: "observe.result", requestId: frame.requestId, payload })
+              )
+              .catch((e) =>
+                transport.send({
+                  type: "observe.result",
+                  requestId: frame.requestId,
+                  payload: { error: (e as Error).message },
+                })
+              );
+          } else {
+            transport.send({
+              type: "observe.result",
+              requestId: frame.requestId,
+              payload: registry.snapshot(),
+            });
+          }
         } else if (frame.type === "action.request") {
-          void executeAction(registry, frame.action)
+          const run = relay
+            ? relay.executeAction(frame.action)
+            : executeAction(registry, frame.action);
+          void run
             .catch((e) => ({ success: false, error: (e as Error).message }))
             .then((payload) =>
               transport.send({ type: "action.result", requestId: frame.requestId, payload })
@@ -116,6 +143,12 @@ export function AgentProvider({
       sessionId,
       registerAction: (name, description, handler) =>
         registry.registerAction(name, description, handler),
+      registerFrame: (relay) => {
+        frameRef.current = relay;
+        return () => {
+          if (frameRef.current === relay) frameRef.current = null;
+        };
+      },
     }),
     [status, sessionId, registry]
   );

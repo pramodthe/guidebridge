@@ -24,6 +24,22 @@ export interface TargetInfo {
   value?: string;
   disabled?: boolean;
   visible: boolean;
+  slug?: string | null;
+}
+
+/** A content section of the page (data-agent-section / data-lesson-section). */
+export interface SectionInfo {
+  id: string;
+  slug?: string | null;
+  title: string;
+  summary: string;
+  visible: boolean;
+}
+
+export interface HeadingInfo {
+  id: string;
+  level: number;
+  text: string;
 }
 
 export interface UserEvent {
@@ -48,6 +64,10 @@ export interface PageSnapshot {
   targets: TargetInfo[];
   customActions: CustomActionInfo[];
   recentEvents: UserEvent[];
+  /** Optional structure emitted by content-page runtimes (e.g. iframe mode). */
+  sections?: SectionInfo[];
+  headings?: HeadingInfo[];
+  visibleSectionId?: string | null;
 }
 
 export type AgentAction =
@@ -81,6 +101,6 @@ export type ClientFrame =
       sessionId: string;
       page: { url: string; title: string };
     }
-  | { type: "observe.result"; requestId: string; payload: PageSnapshot }
+  | { type: "observe.result"; requestId: string; payload: PageSnapshot | { error: string } }
   | { type: "action.result"; requestId: string; payload: ActionResult }
   | { type: "event"; payload: UserEvent };

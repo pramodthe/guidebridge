@@ -382,7 +382,7 @@ is modality-agnostic.
       Cursor, and any MCP client
 - [ ] `spotlight` action (dim everything except the target) + step-sequenced tours
 - [ ] Human-confirmation policy hooks (`confirm: true` per target/action)
-- [ ] Sandboxed-iframe mode for untrusted/generated HTML content
+- [x] **Sandboxed-iframe mode** — `guidebridge.iframe.inject_iframe_runtime()` (server-side) + `useAgentFrame(iframeRef)` (React) control untrusted generated HTML in `sandbox="allow-scripts"` iframes
 - [ ] Vue / Svelte runtimes speaking the same protocol
 - [ ] Voice transports (LiveKit data channels, Vapi client messages)
 

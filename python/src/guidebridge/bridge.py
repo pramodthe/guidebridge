@@ -7,6 +7,7 @@ import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from . import protocol, tools
+from .matching import match_snapshot_target
 from .session import UNAVAILABLE, BridgeSession
 
 try:
@@ -18,7 +19,24 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-Authorizer = Callable[[Any], Awaitable[bool]]
+
+def _is_target_not_found(result: str) -> bool:
+    try:
+        data = json.loads(result)
+    except (ValueError, TypeError):
+        return False
+    return (
+        isinstance(data, dict)
+        and not data.get("success")
+        and "target not found" in str(data.get("error") or "")
+    )
+
+
+# An authorizer may return:
+#   True            — authorized, any sessionId accepted
+#   a string        — authorized, and the client's hello.sessionId MUST equal it
+#   False / None    — rejected
+Authorizer = Callable[[Any], Awaitable[Any]]
 
 
 class AgentBridge:
@@ -100,7 +118,16 @@ class AgentBridge:
         session = self.get_session(session_id)
         if session is None:
             return UNAVAILABLE
-        return await tools.dispatch(session, name, args)
+        result = await tools.dispatch(session, name, args)
+        # Stale-id recovery: content pages re-render and drop auto-generated ids,
+        # so re-observe, fuzzy-match the wanted target, and retry once before
+        # reporting failure to the model.
+        if args.get("target_id") and _is_target_not_found(result):
+            snapshot = await session.observe()
+            retry_id = match_snapshot_target(snapshot, str(args["target_id"])) if snapshot else None
+            if retry_id and retry_id != args["target_id"]:
+                result = await tools.dispatch(session, name, {**args, "target_id": retry_id})
+        return result
 
     def openai_tool_specs(self) -> List[Dict[str, Any]]:
         return tools.openai_tool_specs()
@@ -137,9 +164,14 @@ class AgentBridge:
 
         @router.websocket(self.path)
         async def agent_ws(ws: WebSocket) -> None:  # pragma: no cover - exercised in demo/tests
-            if self.authorize is not None and not await self.authorize(ws):
-                await ws.close(code=4403)
-                return
+            required_session_id: Optional[str] = None
+            if self.authorize is not None:
+                auth = await self.authorize(ws)
+                if not auth:
+                    await ws.close(code=4403)
+                    return
+                if isinstance(auth, str):
+                    required_session_id = auth
             await ws.accept()
 
             try:
@@ -147,6 +179,16 @@ class AgentBridge:
                 hello = protocol.ClientHello.model_validate_json(hello_raw)
             except Exception:
                 await ws.close(code=4400)
+                return
+            if required_session_id is not None and hello.sessionId != required_session_id:
+                # The client's claimed identity must match what the authorizer derived
+                # from credentials — never trust the client-declared session id.
+                logger.warning(
+                    "guidebridge: sessionId mismatch (claimed=%s required=%s)",
+                    hello.sessionId,
+                    required_session_id,
+                )
+                await ws.close(code=4403)
                 return
 
             send_lock = asyncio.Lock()

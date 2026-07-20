@@ -65,6 +65,25 @@ that fix things while the user watches, AI tutors that teach on top of your UI.
 └──────────────┘   observations    └──────────────┘     frames       └────────────────┘
 ```
 
+## ⚡ Try it in one command
+
+Both packages are published — [`guidebridge` on PyPI](https://pypi.org/project/guidebridge/)
+and [`@guidebridge/react` on npm](https://www.npmjs.com/package/@guidebridge/react). This
+scaffolds a complete working app (FastAPI backend + Vite React frontend + a no-API-key
+demo tour) into `./guidebridge-app`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pramodthe/guidebridge/main/quickstart.sh | bash
+```
+
+Then run the two commands it prints, open <http://localhost:5173>, and press
+**▶ Run demo tour** — the agent cursor clicks, types, and explains its way around the
+page. Swap the scripted tour for a real LLM agent with one line
+(`bridge.as_langchain_tools()` — see [Framework integrations](#-framework-integrations)).
+
+Prefer to read before piping to bash? The script is [`quickstart.sh`](quickstart.sh) —
+download it and run `bash quickstart.sh my-app`.
+
 ## 🚀 Quickstart
 
 ### 1. Frontend — mark up your app

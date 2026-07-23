@@ -178,7 +178,12 @@ class AgentBridge:
                 hello_raw = await ws.receive_text()
                 hello = protocol.ClientHello.model_validate_json(hello_raw)
             except Exception:
-                await ws.close(code=4400)
+                # Client often disconnects before hello (React Strict Mode / remount).
+                # Closing an already-closed socket raises; swallow it.
+                try:
+                    await ws.close(code=4400)
+                except Exception:
+                    pass
                 return
             if required_session_id is not None and hello.sessionId != required_session_id:
                 # The client's claimed identity must match what the authorizer derived

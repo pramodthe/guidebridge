@@ -1,5 +1,6 @@
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -61,6 +62,15 @@ export function AgentProvider({
     [autoDiscover]
   );
 
+  // Stable across status flips. If this identity churns, useAgentFrame's effect
+  // disposes the iframe FrameRelay and (in 0.2.0) reused the dead instance.
+  const registerFrame = useCallback((relay: FrameRelay) => {
+    frameRef.current = relay;
+    return () => {
+      if (frameRef.current === relay) frameRef.current = null;
+    };
+  }, []);
+
   useEffect(() => {
     const transport = new BridgeTransport(url, {
       buildHello: () => ({
@@ -74,18 +84,23 @@ export function AgentProvider({
         const relay = frameRef.current; // frame-wins routing (read per request)
         if (frame.type === "observe.request") {
           if (relay) {
-            void relay
-              .snapshot()
-              .then((payload) =>
-                transport.send({ type: "observe.result", requestId: frame.requestId, payload })
-              )
-              .catch((e) =>
+            void (async () => {
+              try {
+                if (!relay.ready) await relay.waitReady();
+                const payload = await relay.snapshot();
+                transport.send({
+                  type: "observe.result",
+                  requestId: frame.requestId,
+                  payload,
+                });
+              } catch (e) {
                 transport.send({
                   type: "observe.result",
                   requestId: frame.requestId,
                   payload: { error: (e as Error).message },
-                })
-              );
+                });
+              }
+            })();
           } else {
             transport.send({
               type: "observe.result",
@@ -94,9 +109,13 @@ export function AgentProvider({
             });
           }
         } else if (frame.type === "action.request") {
-          const run = relay
-            ? relay.executeAction(frame.action)
-            : executeAction(registry, frame.action);
+          const run = (async () => {
+            if (relay) {
+              if (!relay.ready) await relay.waitReady();
+              return relay.executeAction(frame.action);
+            }
+            return executeAction(registry, frame.action);
+          })();
           void run
             .catch((e) => ({ success: false, error: (e as Error).message }))
             .then((payload) =>
@@ -143,14 +162,9 @@ export function AgentProvider({
       sessionId,
       registerAction: (name, description, handler) =>
         registry.registerAction(name, description, handler),
-      registerFrame: (relay) => {
-        frameRef.current = relay;
-        return () => {
-          if (frameRef.current === relay) frameRef.current = null;
-        };
-      },
+      registerFrame,
     }),
-    [status, sessionId, registry]
+    [status, sessionId, registry, registerFrame]
   );
 
   return (

@@ -1,6 +1,6 @@
 {
   "name": "@guidebridge/react",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Give any Python agent eyes and hands inside your React app: semantic page observation, cursor-led actions, and guided-tour overlays.",
   "license": "MIT",
   "type": "module",
@@ -36,9 +36,12 @@
     "react": ">=17"
   },
   "devDependencies": {
+    "@testing-library/react": "^14.3.1",
     "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
     "jsdom": "^24.0.0",
     "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
     "vitest": "^2.0.0"

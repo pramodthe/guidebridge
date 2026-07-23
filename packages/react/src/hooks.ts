@@ -45,6 +45,10 @@ export function useAgentAction(
  * lets the host app read the page for its own purposes (e.g. LLM context).
  * Survives iframe remounts: identity is re-read per message, and the relay
  * re-arms on each fresh document's ready announcement.
+ *
+ * The relay is created inside the effect (not useMemo) so a re-register never
+ * reuses a disposed instance. In 0.2.0, memoizing the relay + disposing it when
+ * `registerFrame` identity churned on WS `connected` left observe/act dead.
  */
 export function useAgentFrame(
   iframeRef: RefObject<HTMLIFrameElement | null>,
@@ -53,14 +57,11 @@ export function useAgentFrame(
   const { registerFrame } = useAgentBridge();
   const [ready, setReady] = useState(false);
   const timeoutMs = opts.timeoutMs;
-
-  const relay = useMemo(
-    () => new FrameRelay(iframeRef, { timeoutMs }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [iframeRef, timeoutMs]
-  );
+  const relayRef = useRef<FrameRelay | null>(null);
 
   useEffect(() => {
+    const relay = new FrameRelay(iframeRef, { timeoutMs });
+    relayRef.current = relay;
     const unregister = registerFrame(relay);
     const unsubscribe = relay.subscribeReady(setReady);
     setReady(relay.ready);
@@ -69,12 +70,20 @@ export function useAgentFrame(
       unsubscribe();
       unregister();
       relay.dispose();
+      if (relayRef.current === relay) relayRef.current = null;
     };
-  }, [relay, registerFrame]);
+  }, [iframeRef, timeoutMs, registerFrame]);
 
   return useMemo(
-    () => ({ snapshot: () => relay.snapshot(), ready }),
-    [relay, ready]
+    () => ({
+      snapshot: () => {
+        const relay = relayRef.current;
+        if (!relay) return Promise.reject(new Error("frame relay not ready"));
+        return relay.snapshot();
+      },
+      ready,
+    }),
+    [ready]
   );
 }
 
